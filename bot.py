@@ -35,18 +35,28 @@ def is_admin(user_id: int) -> bool:
 # ------------ Основные команды ------------
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
-    log_action("start/help", message.from_user.id)
+    log_action("start", message.from_user.id)
     text = (
-        "🚀 Добро пожаловать в квиз-бот!\n"
-        "Доступные команды:\n"
-        "/start_quiz - Начать квиз\n"
-        "/stats - Ваша статистика\n"
-        "/get_prize - Получить приз\n"
-        "/autors - Об авторах"
+        "🚀 *Добро пожаловать в квиз-бот!*\n\n"
+        "Этот бот поможет вам проверить свои знания в увлекательной викторине. "
+        "Вы можете начать квиз, посмотреть свою статистику и даже получить приз!\n\n"
+        "Используйте команду /help, чтобы увидеть список доступных команд."
+    )
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
+
+@bot.message_handler(commands=["help"])
+def show_help(message):
+    log_action("help", message.from_user.id)
+    text = (
+        "📋 *Список команд:*\n\n"
+        "▶️ /start\_quiz - Начать квиз\n"
+        "📊 /stats - Ваша статистика\n"
+        "🎁 /get\_prize - Получить приз\n"
+        "👨‍💻 /author - Об авторе\n"
     )
     if is_admin(message.from_user.id):
-        text += "\n/admin - Админ-панель"
-    bot.send_message(message.chat.id, text)
+        text += "🔧 /admin - Админ-панель\n"
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=["get_prize"])
 def prize(message):
@@ -56,20 +66,19 @@ def prize(message):
     
     if len(completed) == total_questions and total_questions > 0:
         text = (
-            "🎉 *Поздравляем с прохождением квиза!*\n"
-            "Пока что мы не придумали какие подарки будут, "
-            "так что пока просто наслаждайтесь своей победой! (или попробуйте выйти в топ по скорости =)"
+            "🎉 *Поздравляю с прохождением квиза!*\n\n"
+            "Пока что я не придумал, какие подарки будут, "
+            "так что наслаждайтесь своей победой! 🏆\n\n"
+            "Попробуйте улучшить свой результат и выйти в топ! 🚀"
         )
         bot.send_message(message.chat.id, text, parse_mode="Markdown")
     else:
         bot.send_message(
             message.chat.id,
-            f"❌ Для получения приза нужно пройти все вопросы! "
+            f"❌ Для получения приза нужно пройти все вопросы!\n"
             f"Выполнено: {len(completed)}/{total_questions}",
             parse_mode="Markdown"
         )
-    
-
 
 @bot.message_handler(commands=["start_quiz"])
 def start_quiz(message):
@@ -91,21 +100,15 @@ def start_quiz(message):
     database.add_user_progress(user_id, 1, start_time=int(time.time()))
     bot.send_message(message.chat.id, question["question_text"], reply_markup=keyboard)
 
-@bot.message_handler(commands=["autors"])
-def autors(message):
+@bot.message_handler(commands=["author"])
+def author(message):
     authors_text = (
-        "*Разработчики\:* **мАмКиНы ПрОгРаМмИсТы**\n\n"
-        "👨💻 *Ведущий разработчик\:*\n"
-        "Константин Горшков\n"
-        "Telegram\: @Kos000113\n"
-        "Почта\: kostya\_gorshkov\_06@vk\.com\n"  # Экранированы '_' и '.'
-        "GitHub\: [kostya2023](https://github\.com/kostya2023)\n\n"
-        "👨💻 *Помощник и редизайнер\:*\n"
-        "Капитонов Игорь\n"
-        "Telegram\: None \(🥲\)\n"  # Экранированы '(' и ')'
-        "Почта\: None \(😎\)\n"
-        "GitHub\: [Digzie](https://github\.com/Digzie)\n\n"
-        "🌐 *Репозиторий проекта\:*\n"
+        "👨‍💻 *Разработчик:*\n\n"
+        "*ФИ*: Константин Горшков\n"
+        "*Telegram*: @Kos000113\n"
+        "*Почта*: kostya\_gorshkov\_06@vk\.com\n"
+        "*GitHub*: [kostya2023](https://github\.com/kostya2023)\n\n"
+        "🌐 *Репозиторий проекта:*\n"
         "[telegram\_space\_quiz\_bot](https://github\.com/kostya2023/telegram\_space\_quiz\_bot)"
     )
     
@@ -123,12 +126,12 @@ def show_stats(message):
     completed = database.get_completed_questions(user_id)
     
     text = (
-        f"📊 Ваша статистика:\n"
+        f"📊 *Ваша статистика:*\n\n"
         f"• Пройдено вопросов: {len(completed)}\n"
         f"• Общее время: {stats['total_time']} сек\n"
         f"• Место в топе: {stats['place'] if stats['place'] != 'Не в топе' else '🚫'}"
     )
-    bot.send_message(message.chat.id, text)
+    bot.send_message(message.chat.id, text, parse_mode="Markdown")
 
 # ------------ Админ-панель ------------
 def generate_admin_menu():
@@ -144,13 +147,14 @@ def generate_admin_menu():
 @bot.message_handler(commands=["admin"])
 def admin_panel(message):
     if not is_admin(message.from_user.id):
+        bot.send_message(message.chat.id, "⛔ Доступ запрещен!")
         return
-    
+
     log_action("admin", message.from_user.id)
     bot.send_message(
         message.chat.id,
-        "🔧 <b>Админ-панель</b>",
-        parse_mode="HTML",
+        "🔧 *Админ-панель*",
+        parse_mode="Markdown",
         reply_markup=generate_admin_menu()
     )
 
@@ -200,7 +204,7 @@ def handle_admin_actions(call):
     
     elif action == "stats":
         top = database.get_top()
-        text = "🏆 Топ-10 пользователей:\n\n"
+        text = "🏆 *Топ-10 пользователей:*\n\n"
         for place, data in top.items():
             text += f"{place}. {data['Name_user']} — {data['total_time']} сек\n"
         bot.edit_message_text(
@@ -272,8 +276,7 @@ def handle_answer(call):
     is_correct = database.check_answer(current_q_id, selected_opt)
 
     if is_correct:
-        # Только при правильном ответе завершаем вопрос
-        database.complete_question(user_id, current_q_id)  # <-- Перемещено сюда
+        database.complete_question(user_id, current_q_id)
         bot.answer_callback_query(call.id, "✅ Правильно!")
         next_q = database.get_question(current_q_id + 1)
         
@@ -297,7 +300,6 @@ def handle_answer(call):
                 text="🎉 Квиз пройден! Ваш результат добавлен в топ!"
             )
     else:
-        # При неправильном ответе вопрос НЕ завершается
         bot.answer_callback_query(call.id, "❌ Неправильно! Попробуйте еще раз.")
 
 if __name__ == "__main__":
