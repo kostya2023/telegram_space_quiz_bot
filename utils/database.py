@@ -5,7 +5,6 @@ import time
 # Путь к базе данных
 db_path = "storage/database.db"
 
-# Функция для нормализации результатов fetchall
 def normalize_fetchall(list_for_normalize: List[Tuple[Any, ...]]) -> List[Any]:
     """
     Преобразует список кортежей в плоский список, извлекая первый элемент каждого кортежа.
@@ -42,7 +41,8 @@ def create_tables():
                     option2 TEXT NOT NULL,  -- Вариант ответа 2
                     option3 TEXT NOT NULL,  -- Вариант ответа 3
                     option4 TEXT NOT NULL,  -- Вариант ответа 4
-                    correct_option INTEGER NOT NULL  -- Номер правильного варианта (1, 2, 3 или 4)
+                    correct_option INTEGER NOT NULL,  -- Номер правильного варианта (1, 2, 3 или 4)
+                    image_path TEXT  -- Путь к изображению (новая колонка)
                 )
             ''')
 
@@ -165,10 +165,10 @@ def get_all_users() -> List[str]:
         print(f"Ошибка при получении пользователей: {e}")
         return []
 
-# Функция для добавления вопроса с вариантами ответов
-def add_question(question_text: str, option1: str, option2: str, option3: str, option4: str, correct_option: int) -> bool:
+# Функция для добавления вопроса с вариантами ответов и изображением
+def add_question(question_text: str, option1: str, option2: str, option3: str, option4: str, correct_option: int, image_path: Optional[str] = None) -> bool:
     """
-    Добавляет вопрос в базу данных с вариантами ответов.
+    Добавляет вопрос в базу данных с вариантами ответов и изображением.
 
     :param question_text: Текст вопроса.
     :param option1: Вариант ответа 1.
@@ -176,6 +176,7 @@ def add_question(question_text: str, option1: str, option2: str, option3: str, o
     :param option3: Вариант ответа 3.
     :param option4: Вариант ответа 4.
     :param correct_option: Номер правильного варианта (1, 2, 3 или 4).
+    :param image_path: Путь к изображению (опционально).
     :return: True, если вопрос успешно добавлен, иначе False.
     """
     try:
@@ -183,11 +184,11 @@ def add_question(question_text: str, option1: str, option2: str, option3: str, o
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
 
-            # Добавляем вопрос с вариантами ответов
+            # Добавляем вопрос с вариантами ответов и изображением
             cursor.execute('''
-                INSERT INTO Questions (question_text, option1, option2, option3, option4, correct_option)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (question_text, option1, option2, option3, option4, correct_option))
+                INSERT INTO Questions (question_text, option1, option2, option3, option4, correct_option, image_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (question_text, option1, option2, option3, option4, correct_option, image_path))
 
             # Фиксируем изменения в базе данных
             conn.commit()
@@ -199,13 +200,14 @@ def add_question(question_text: str, option1: str, option2: str, option3: str, o
         print(f"Ошибка при добавлении вопроса '{question_text}': {e}")
         return False  # Произошла ошибка
 
-# Функция для получения вопроса с вариантами ответов
+
+# Функция для получения вопроса с вариантами ответов и изображением
 def get_question(question_id: int) -> Optional[Dict[str, Any]]:
     """
-    Возвращает вопрос с вариантами ответов.
+    Возвращает вопрос с вариантами ответов и изображением.
 
     :param question_id: ID вопроса.
-    :return: Словарь с вопросом и вариантами ответов, или None, если вопрос не найден.
+    :return: Словарь с вопросом, вариантами ответов и изображением, или None, если вопрос не найден.
     """
     try:
         # Подключаемся к базе данных
@@ -214,7 +216,7 @@ def get_question(question_id: int) -> Optional[Dict[str, Any]]:
 
             # Получаем вопрос
             cursor.execute('''
-                SELECT question_text, option1, option2, option3, option4, correct_option
+                SELECT question_text, option1, option2, option3, option4, correct_option, image_path
                 FROM Questions
                 WHERE question_id = ?
             ''', (question_id,))
@@ -223,11 +225,12 @@ def get_question(question_id: int) -> Optional[Dict[str, Any]]:
             if not question:
                 return None  # Вопрос не найден
 
-            # Формируем словарь с вопросом и вариантами ответов
+            # Формируем словарь с вопросом, вариантами ответов и изображением
             return {
                 "question_text": question[0],
                 "options": [question[1], question[2], question[3], question[4]],
-                "correct_option": question[5]
+                "correct_option": question[5],
+                "image_path": question[6]  # Путь к изображению
             }
 
     except sqlite3.Error as e:
@@ -369,35 +372,43 @@ def calculate_total_time(user_id: int) -> Optional[int]:
         return None
 
 
-# Функция для добавления пользователя в топ
-def add_to_top(user_id: int, username: str) -> bool:
+def add_to_top(user_id: int, username: str, new_total_time: int) -> bool:
     """
-    Добавляет пользователя в топ.
+    Добавляет пользователя в топ, если новое время меньше текущего времени в топе.
+    Если время в топе больше или отсутствует, то запись добавляется или обновляется.
 
     :param user_id: ID пользователя в Telegram.
     :param username: Имя пользователя.
-    :return: True, если успешно, иначе False.
+    :param new_total_time: Новое общее время прохождения квиза (в секундах).
+    :return: True, если запись успешно добавлена или обновлена, иначе False.
     """
     try:
         # Подключаемся к базе данных
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
 
-            # Вычисляем общее время прохождения квиза
-            total_time = calculate_total_time(user_id)
-            if not total_time:
-                print(f"Невозможно добавить пользователя {user_id} в топ: нет данных о времени.")
+            # Получаем текущее время пользователя в топе, если оно существует
+            cursor.execute('''
+                SELECT total_time
+                FROM TopUsers
+                WHERE tg_id = ?
+            ''', (str(user_id),))
+            current_time = cursor.fetchone()
+
+            # Если текущее время существует и оно меньше нового времени, не обновляем
+            if current_time and current_time[0] < new_total_time:
+                print(f"Текущее время пользователя {user_id} в топе меньше нового времени. Обновление не требуется.")
                 return False
 
-            # Добавляем или обновляем запись в топе
+            # Если текущее время больше или отсутствует, добавляем или обновляем запись
             cursor.execute('''
                 INSERT OR REPLACE INTO TopUsers (tg_id, username, total_time)
                 VALUES (?, ?, ?)
-            ''', (str(user_id), username, total_time))
+            ''', (str(user_id), username, new_total_time))
 
             # Фиксируем изменения в базе данных
             conn.commit()
-            print(f"Пользователь {user_id} добавлен в топ с временем {total_time} секунд.")
+            print(f"Пользователь {user_id} добавлен в топ с временем {new_total_time} секунд.")
             return True  # Успешно
 
     except sqlite3.Error as e:
@@ -606,6 +617,37 @@ def add_user_progress(user_id: int, question_id: int, start_time: Optional[int] 
         print(f"Ошибка при записи прогресса для пользователя {user_id}: {e}")
         return False  # Произошла ошибка
 
+def update_question_image(question_id: int, image_path: str) -> bool:
+    """
+    Обновляет путь к изображению для вопроса.
+
+    :param question_id: ID вопроса.
+    :param image_path: Новый путь к изображению.
+    :return: True, если обновление прошло успешно, иначе False.
+    """
+    try:
+        # Подключаемся к базе данных
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+
+            # Обновляем путь к изображению
+            cursor.execute('''
+                UPDATE Questions
+                SET image_path = ?
+                WHERE question_id = ?
+            ''', (image_path, question_id))
+
+            # Фиксируем изменения в базе данных
+            conn.commit()
+            print(f"Изображение для вопроса {question_id} успешно обновлено.")
+            return True  # Успешно
+
+    except sqlite3.Error as e:
+        # Обработка ошибок при обновлении изображения
+        print(f"Ошибка при обновлении изображения для вопроса {question_id}: {e}")
+        return False  # Произошла ошибка
+
+
 # Добавляем новые функции для администратора
 def delete_question(question_id: int) -> bool:
     """Удаляет вопрос по ID."""
@@ -683,6 +725,40 @@ def recreate_database():
         # Обработка ошибок при пересоздании базы данных
         print(f"Ошибка при пересоздании базы данных: {e}")
 
+def calculate_total_time(user_id: int) -> Optional[int]:
+    """
+    Вычисляет общее время прохождения квиза для пользователя.
+    """
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+
+            # Получаем все записи о прохождении вопросов
+            cursor.execute('''
+                SELECT end_time
+                FROM UserProgress
+                WHERE tg_id = ? AND is_completed = 1 AND question_id = 25
+            ''', (str(user_id),))
+            end_time = cursor.fetchone()
+
+            cursor.execute('''
+                SELECT start_time
+                FROM UserProgress
+                WHERE tg_id = ? AND is_completed = 1 AND question_id = 1
+            ''', (str(user_id),))
+            start_time = cursor.fetchone()
+
+
+            end_time = end_time[0]
+            start_time = start_time[0]
+            total_time = int(end_time) - int(start_time)
+            return total_time
+
+    except sqlite3.Error as e:
+        # Обработка ошибок при вычислении времени
+        print(f"Ошибка при вычислении времени для пользователя {user_id}: {e}")
+        return None
+
 if __name__ == "__main__":
     recreate_database()
     
@@ -690,154 +766,179 @@ if __name__ == "__main__":
     add_question(
         "Какая планета Солнечной системы самая большая?",
         "Марс", "Венера", "Юпитер", "Сатурн",
-        3  # Юпитер
+        3,  # Юпитер
+        "./imgs/question1.jpg"  # Путь к изображению
     )
     
     add_question(
         "Как называется галактика, в которой находится Солнечная система?",
         "Туманность Андромеды", "Млечный Путь", "Сомбреро", "Сигара",
-        2  # Млечный Путь
+        2,  # Млечный Путь
+        "./imgs/question2.jpg"
     )
     
     add_question(
         "Сколько спутников у Марса?",
         "0", "1", "2", "3",
-        3  # 2 (Фобос и Деймос)
+        3,  # 2 (Фобос и Деймос)
+        "./imgs/question3.jpg"
     )
     
     add_question(
         "Какой объект называют 'космическим пылесосом'?",
         "Комета", "Чёрная дыра", "Нейтронная звезда", "Квазар",
-        2  # Чёрная дыра
+        2,  # Чёрная дыра
+        "./imgs/question4.jpg"
     )
     
     add_question(
         "Сколько минут длился первый полёт человека в космос?",
         "89", "108", "12", "202",
-        2  # 108 минут (Гагарин)
+        2,  # 108 минут (Гагарин)
+        "./imgs/question5.jpg"
     )
 
     add_question(
         "Какой газ придаёт Нептуну синий цвет?",
         "Кислород", "Метан", "Гелий", "Углекислый газ",
-        2  # Метан
+        2,  # Метан
+        "./imgs/question6.jpg"
     )
     
     add_question(
         "Как называется крупнейший вулкан Солнечной системы?",
         "Эверест", "Олимп", "Этна", "Кракатау",
-        2  # Олимп (Марс)
+        2,  # Олимп (Марс)
+        "./imgs/question7.jpg"
     )
     
     add_question(
         "Какая звезда самая яркая на ночном небе?",
         "Полярная", "Сириус", "Вега", "Альдебаран",
-        2  # Сириус
+        2,  # Сириус
+        "./imgs/question8.jpg"
     )
     
     add_question(
         "Сколько земных лет длится год на Венере?",
         "0.6", "1.9", "3.2", "225",
-        4  # 225 дней ≈ 0.6 лет (ловушка! Правильный ответ 4)
+        4,  # 225 дней ≈ 0.6 лет (ловушка! Правильный ответ 4)
+        "./imgs/question9.jpg"
     )
     
     add_question(
         "Какой космический аппарат первым покинул Солнечную систему?",
         "Вояджер-1", "Спутник-1", "Кассини", "Хаббл",
-        1  # Вояджер-1
+        1,  # Вояджер-1
+        "./imgs/question10.jpg"
     )
 
     # Дополнительные вопросы
     add_question(
         "Какое явление возникает при падении метеорита в атмосферу?",
         "Звездопад", "Метеорный поток", "Солнечное затмение", "Полярное сияние",
-        1  # Звездопад
+        1,  # Звездопад
+        "./imgs/question11.jpg"
     )
     
     add_question(
         "Как называется обратная сторона Луны?",
         "Тёмная сторона", "Морская сторона", "Ближняя сторона", "Дальняя сторона",
-        4  # Дальняя сторона
+        4,  # Дальняя сторона
+        "./imgs/question12.jpg"
     )
     
     add_question(
         "Какой элемент преобладает в составе Солнца?",
         "Кислород", "Углерод", "Гелий", "Водород",
-        4  # Водород (≈73%)
+        4,  # Водород (≈73%)
+        "./imgs/question13.jpg"
     )
     
     add_question(
         "Сколько колец у Сатурна?",
         "3", "7", "Тысячи", "Нет колец",
-        3  # Тысячи тонких колец
+        3,  # Тысячи тонких колец
+        "./imgs/question14.jpg"
     )
     
     add_question(
         "Какая планета вращается 'лёжа на боку'?",
         "Уран", "Нептун", "Плутон", "Венера",
-        1  # Уран
+        1,  # Уран
+        "./imgs/question15.jpg"
     )
 
     # Сложные вопросы
     add_question(
         "Как называется гипотетическая форма жизни на основе кремния?",
         "Ксеноморфы", "Силиконы", "Кремниевые люди", "Серафимы",
-        2  # Силиконы
+        2,  # Силиконы
+        "./imgs/question16.jpg"
     )
     
     add_question(
         "Какой телескоп обнаружил экзопланеты в 'зоне жизни'?",
         "Хаббл", "Джеймс Уэбб", "Кеплер", "Спитцер",
-        3  # Кеплер
+        3,  # Кеплер
+        "./imgs/question17.jpg"
     )
     
     add_question(
         "Какая галактика столкнётся с Млечным Путём через 4 млрд лет?",
         "Туманность Андромеды", "Большое Магелланово Облако", "Треугольник", "Скульптор",
-        1  # Андромеда
+        1,  # Андромеда
+        "./imgs/question18.jpg"
     )
     
     add_question(
         "Сколько земных лет длится один день на Меркурии?",
         "58 дней", "176 дней", "365 дней", "88 дней",
-        2  # 176 дней (из-за резонанса вращения)
+        2,  # 176 дней (из-за резонанса вращения)
+        "./imgs/question19.jpg"
     )
     
     add_question(
         "Как называется точка, где гравитация перестаёт действовать?",
         "Сингулярность", "Горизонт событий", "Точка Лагранжа", "Гравитационный колодец",
-        3  # Точка Лагранжа
+        3,  # Точка Лагранжа
+        "./imgs/question20.jpg"
     )
 
     # Завершающие вопросы
     add_question(
         "Какой элемент образуется в ядрах умирающих звёзд?",
         "Железо", "Золото", "Уран", "Кислород",
-        1  # Железо
+        1,  # Железо
+        "./imgs/question21.jpg"
     )
     
     add_question(
         "Какое расстояние измеряют в парсеках?",
         "Скорость света", "Масса звёзд", "Космические расстояния", "Яркость",
-        3  # Расстояния
+        3,  # Расстояния
+        "./imgs/question22.jpg"
     )
     
     add_question(
         "Как называется взрыв сверхновой типа Ia?",
         "Термоядерный", "Гравитационный коллапс", "Киллонова", "Гипернова",
-        1  # Термоядерный (из-за белого карлика)
+        1,  # Термоядерный (из-за белого карлика)
+        "./imgs/question23.jpg"
     )
     
     add_question(
         "Сколько процентов Вселенной составляет видимая материя?",
         "5%", "27%", "68%", "95%",
-        1  # 5% (остальное — тёмная материя и энергия)
+        1,  # 5% (остальное — тёмная материя и энергия)
+        "./imgs/question24.jpg"
     )
     
     add_question(
         "Какой объект испускает повторяющиеся радиосигналы?",
         "Пульсар", "Квазар", "Метеорит", "Кометное ядро",
-        1  # Пульсар
+        1,  # Пульсар
+        "./imgs/question25.jpg"
     )
 
-    print("База данных успешно инициализирована с 25 вопросами!")
+    print("База данных успешно инициализирована с 25 вопросами и изображениями!")
